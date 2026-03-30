@@ -1,96 +1,118 @@
-/**
- * UseCase3InventorySetup
- *
- * Demonstrates centralized room inventory management using a HashMap.
- * Room availability is managed in a single source of truth with
- * controlled methods for retrieval and updates.
- *
- * Version: 3.1
- * Author: YourName
- */
+import java.util.*;
 
-import java.util.HashMap;
-import java.util.Map;
+// Domain Model: Room
+class Room {
+    private String type;
+    private double price;
+    private List<String> amenities;
 
-class RoomInventory {
-    private Map<String, Integer> availability;
-
-    // Constructor initializes inventory with given room types and counts
-    public RoomInventory(Map<String, Integer> initialInventory) {
-        availability = new HashMap<>(initialInventory);
+    public Room(String type, double price, List<String> amenities) {
+        this.type = type;
+        this.price = price;
+        this.amenities = amenities;
     }
 
-    // Get availability for a given room type
-    public int getAvailability(String roomType) {
-        return availability.getOrDefault(roomType, 0);
+    public String getType() {
+        return type;
     }
 
-    // Update availability for a given room type (positive or negative delta)
-    public boolean updateAvailability(String roomType, int delta) {
-        int current = availability.getOrDefault(roomType, 0);
-        int updated = current + delta;
-        if (updated < 0) {
-            // Cannot have negative availability
-            return false;
-        }
-        availability.put(roomType, updated);
-        return true;
+    public double getPrice() {
+        return price;
     }
 
-    // Display current inventory state
-    public void displayInventory() {
-        System.out.println("Current Room Inventory:");
-        for (Map.Entry<String, Integer> entry : availability.entrySet()) {
-            System.out.println(" - " + entry.getKey() + ": " + entry.getValue() + " available");
-        }
+    public List<String> getAmenities() {
+        return amenities;
     }
 }
 
-public class BookMyStayApp {
+// Inventory (State Holder - Read Only for this Use Case)
+class Inventory {
+    private Map<String, Integer> availabilityMap;
 
+    public Inventory() {
+        availabilityMap = new HashMap<>();
+    }
+
+    public void addRoom(String roomType, int count) {
+        availabilityMap.put(roomType, count);
+    }
+
+    // Read-only access
+    public int getAvailableCount(String roomType) {
+        return availabilityMap.getOrDefault(roomType, 0);
+    }
+
+    public Set<String> getAllRoomTypes() {
+        return availabilityMap.keySet();
+    }
+}
+
+// Search Service (Read-only operations)
+class SearchService {
+    private Inventory inventory;
+    private Map<String, Room> roomCatalog;
+
+    public SearchService(Inventory inventory, Map<String, Room> roomCatalog) {
+        this.inventory = inventory;
+        this.roomCatalog = roomCatalog;
+    }
+
+    public void searchAvailableRooms() {
+        System.out.println("Available Rooms:\n");
+
+        for (String roomType : inventory.getAllRoomTypes()) {
+
+            int availableCount = inventory.getAvailableCount(roomType);
+
+            // Validation: Only show available rooms
+            if (availableCount > 0) {
+                Room room = roomCatalog.get(roomType);
+
+                if (room != null) {
+                    displayRoomDetails(room, availableCount);
+                }
+            }
+        }
+    }
+
+    private void displayRoomDetails(Room room, int count) {
+        System.out.println("Room Type: " + room.getType());
+        System.out.println("Price: ₹" + room.getPrice());
+        System.out.println("Amenities: " + String.join(", ", room.getAmenities()));
+        System.out.println("Available Count: " + count);
+        System.out.println("---------------------------");
+    }
+}
+
+// Main Class
+public class BookMyStayApp  {
     public static void main(String[] args) {
-        System.out.println("======================================");
-        System.out.println("Hotel Booking System - Inventory Setup");
-        System.out.println("Version: 3.1");
-        System.out.println("======================================\n");
 
-        // Initialize inventory with room types and counts
-        Map<String, Integer> initialInventory = new HashMap<>();
-        initialInventory.put("Single", 10);
-        initialInventory.put("Double", 5);
-        initialInventory.put("Suite", 2);
+        // Step 1: Setup Inventory
+        Inventory inventory = new Inventory();
+        inventory.addRoom("Single", 5);
+        inventory.addRoom("Double", 0); // Should not appear
+        inventory.addRoom("Suite", 2);
 
-        RoomInventory inventory = new RoomInventory(initialInventory);
+        // Step 2: Setup Room Catalog (Domain Model)
+        Map<String, Room> roomCatalog = new HashMap<>();
 
-        // Display initial inventory
-        inventory.displayInventory();
+        roomCatalog.put("Single",
+                new Room("Single", 2000,
+                        Arrays.asList("WiFi", "TV", "AC")));
 
-        System.out.println("\nUpdating inventory...");
-        // Book 3 single rooms (reduce availability)
-        if (inventory.updateAvailability("Single", -3)) {
-            System.out.println("3 Single rooms booked.");
-        } else {
-            System.out.println("Failed to book Single rooms.");
-        }
+        roomCatalog.put("Double",
+                new Room("Double", 3500,
+                        Arrays.asList("WiFi", "TV", "AC", "Mini Bar")));
 
-        // Add 1 Suite room (increase availability)
-        if (inventory.updateAvailability("Suite", 1)) {
-            System.out.println("1 Suite room added.");
-        } else {
-            System.out.println("Failed to update Suite rooms.");
-        }
+        roomCatalog.put("Suite",
+                new Room("Suite", 6000,
+                        Arrays.asList("WiFi", "TV", "AC", "Mini Bar", "Jacuzzi")));
 
-        // Attempt to book more Double rooms than available
-        if (!inventory.updateAvailability("Double", -10)) {
-            System.out.println("Cannot book 10 Double rooms: Not enough availability.");
-        }
+        // Step 3: Search Service
+        SearchService searchService = new SearchService(inventory, roomCatalog);
 
-        // Display updated inventory
-        System.out.println();
-        inventory.displayInventory();
-
-        System.out.println("\n======================================");
-        System.out.println("End of Inventory Management Demo");
-        System.out.println("======================================");
+        // Step 4: Perform Search (Read-Only Operation)
+        searchService.searchAvailableRooms();
     }
 }
