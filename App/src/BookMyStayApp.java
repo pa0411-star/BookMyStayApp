@@ -1,137 +1,165 @@
 import java.util.*;
 
-// Add-On Service class
-class AddOnService {
-    private String serviceName;
-    private double cost;
-
-    public AddOnService(String serviceName, double cost) {
-        this.serviceName = serviceName;
-        this.cost = cost;
-    }
-
-    public String getServiceName() {
-        return serviceName;
-    }
-
-    public double getCost() {
-        return cost;
-    }
-
-    @Override
-    public String toString() {
-        return serviceName + " (₹" + cost + ")";
+// Custom Exception for Invalid Booking
+class InvalidBookingException extends Exception {
+    public InvalidBookingException(String message) {
+        super(message);
     }
 }
 
-// Reservation class (simplified with ID)
+// Reservation class
 class Reservation {
-    private String reservationId;
     private String guestName;
+    private String roomType;
+    private int nights;
 
-    public Reservation(String reservationId, String guestName) {
-        this.reservationId = reservationId;
+    public Reservation(String guestName, String roomType, int nights) {
         this.guestName = guestName;
-    }
-
-    public String getReservationId() {
-        return reservationId;
+        this.roomType = roomType;
+        this.nights = nights;
     }
 
     public String getGuestName() {
         return guestName;
     }
 
+    public String getRoomType() {
+        return roomType;
+    }
+
+    public int getNights() {
+        return nights;
+    }
+
     @Override
     public String toString() {
-        return "Reservation [ID=" + reservationId + ", Guest=" + guestName + "]";
+        return "Reservation [Guest=" + guestName +
+                ", RoomType=" + roomType +
+                ", Nights=" + nights + "]";
     }
 }
 
-// Add-On Service Manager
-class AddOnServiceManager {
+// Inventory Service
+class InventoryService {
+    private Map<String, Integer> inventory;
 
-    // Map: Reservation ID → List of Services
-    private Map<String, List<AddOnService>> serviceMap;
-
-    public AddOnServiceManager() {
-        serviceMap = new HashMap<>();
+    public InventoryService() {
+        inventory = new HashMap<>();
+        inventory.put("Standard", 2);
+        inventory.put("Deluxe", 1);
+        inventory.put("Suite", 1);
     }
 
-    // Add service to a reservation
-    public void addService(String reservationId, AddOnService service) {
-        serviceMap.putIfAbsent(reservationId, new ArrayList<>());
-        serviceMap.get(reservationId).add(service);
-
-        System.out.println("Added service: " + service +
-                " to Reservation ID: " + reservationId);
+    public boolean isValidRoomType(String roomType) {
+        return inventory.containsKey(roomType);
     }
 
-    // Get services for a reservation
-    public List<AddOnService> getServices(String reservationId) {
-        return serviceMap.getOrDefault(reservationId, new ArrayList<>());
+    public boolean isAvailable(String roomType) {
+        return inventory.getOrDefault(roomType, 0) > 0;
     }
 
-    // Calculate total cost of services
-    public double calculateTotalCost(String reservationId) {
-        double total = 0.0;
-        List<AddOnService> services = serviceMap.get(reservationId);
+    public void decrement(String roomType) throws InvalidBookingException {
+        int count = inventory.get(roomType);
 
-        if (services != null) {
-            for (AddOnService s : services) {
-                total += s.getCost();
-            }
+        if (count <= 0) {
+            throw new InvalidBookingException("No rooms available for type: " + roomType);
         }
 
-        return total;
+        inventory.put(roomType, count - 1);
     }
 
-    // Display services for a reservation
-    public void displayServices(String reservationId) {
-        List<AddOnService> services = getServices(reservationId);
-
-        if (services.isEmpty()) {
-            System.out.println("No add-on services for Reservation ID: " + reservationId);
-            return;
+    public void displayInventory() {
+        System.out.println("\nCurrent Inventory:");
+        for (Map.Entry<String, Integer> entry : inventory.entrySet()) {
+            System.out.println(entry.getKey() + " -> " + entry.getValue());
         }
-
-        System.out.println("\nServices for Reservation ID: " + reservationId);
-        for (AddOnService s : services) {
-            System.out.println("- " + s);
-        }
-
-        System.out.println("Total Add-On Cost: ₹" + calculateTotalCost(reservationId));
     }
 }
 
-// Main class
+// Validator Class (Fail-Fast)
+class BookingValidator {
+
+    public static void validate(Reservation reservation, InventoryService inventory)
+            throws InvalidBookingException {
+
+        if (reservation.getGuestName() == null || reservation.getGuestName().isEmpty()) {
+            throw new InvalidBookingException("Guest name cannot be empty.");
+        }
+
+        if (reservation.getNights() <= 0) {
+            throw new InvalidBookingException("Number of nights must be greater than 0.");
+        }
+
+        if (!inventory.isValidRoomType(reservation.getRoomType())) {
+            throw new InvalidBookingException("Invalid room type: " + reservation.getRoomType());
+        }
+
+        if (!inventory.isAvailable(reservation.getRoomType())) {
+            throw new InvalidBookingException("Room not available: " + reservation.getRoomType());
+        }
+    }
+}
+
+// Booking Service
+class BookingService {
+
+    private int roomCounter = 1;
+    private Set<String> allocatedRooms = new HashSet<>();
+
+    public void processBooking(Reservation reservation, InventoryService inventory) {
+        try {
+            // Step 1: Validate (Fail Fast)
+            BookingValidator.validate(reservation, inventory);
+
+            // Step 2: Allocate room
+            String roomId = generateRoomId(reservation.getRoomType());
+
+            allocatedRooms.add(roomId);
+
+            // Step 3: Update inventory (safe)
+            inventory.decrement(reservation.getRoomType());
+
+            // Step 4: Confirm booking
+            System.out.println("✅ Booking Confirmed: " + reservation +
+                    " | Room ID: " + roomId);
+
+        } catch (InvalidBookingException e) {
+            // Graceful failure handling
+            System.out.println("❌ Booking Failed: " + e.getMessage());
+        }
+    }
+
+    private String generateRoomId(String roomType) {
+        return roomType.substring(0, 2).toUpperCase() + (roomCounter++);
+    }
+}
+
+// Main Class
 public class BookMyStayApp {
 
     public static void main(String[] args) {
 
-        // Step 1: Create sample reservations (already confirmed in UC6)
-        Reservation r1 = new Reservation("RES101", "Alice");
-        Reservation r2 = new Reservation("RES102", "Bob");
+        InventoryService inventory = new InventoryService();
+        BookingService bookingService = new BookingService();
 
-        // Step 2: Create services
-        AddOnService breakfast = new AddOnService("Breakfast", 500);
-        AddOnService wifi = new AddOnService("WiFi", 200);
-        AddOnService airportPickup = new AddOnService("Airport Pickup", 1000);
-        AddOnService spa = new AddOnService("Spa Access", 1500);
+        inventory.displayInventory();
 
-        // Step 3: Initialize manager
-        AddOnServiceManager manager = new AddOnServiceManager();
+        // Test cases (valid + invalid)
+        List<Reservation> requests = Arrays.asList(
+                new Reservation("Alice", "Deluxe", 2),   // valid
+                new Reservation("", "Suite", 1),          // invalid name
+                new Reservation("Bob", "Luxury", 2),      // invalid room type
+                new Reservation("Charlie", "Suite", 0),   // invalid nights
+                new Reservation("David", "Suite", 1),     // valid
+                new Reservation("Eve", "Suite", 1)        // unavailable now
+        );
 
-        // Step 4: Add services to reservations
-        manager.addService(r1.getReservationId(), breakfast);
-        manager.addService(r1.getReservationId(), wifi);
-        manager.addService(r1.getReservationId(), spa);
+        System.out.println("\nProcessing Bookings...\n");
 
-        manager.addService(r2.getReservationId(), wifi);
-        manager.addService(r2.getReservationId(), airportPickup);
+        for (Reservation r : requests) {
+            bookingService.processBooking(r, inventory);
+        }
 
-        // Step 5: Display services
-        manager.displayServices(r1.getReservationId());
-        manager.displayServices(r2.getReservationId());
+        inventory.displayInventory();
     }
 }
