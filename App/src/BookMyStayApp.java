@@ -1,17 +1,22 @@
+import java.io.*;
 import java.util.*;
 
-// Reservation class
-class Reservation {
+// Reservation class (Serializable)
+class Reservation implements Serializable {
+    private static final long serialVersionUID = 1L;
+
+    private String reservationId;
     private String guestName;
     private String roomType;
 
-    public Reservation(String guestName, String roomType) {
+    public Reservation(String reservationId, String guestName, String roomType) {
+        this.reservationId = reservationId;
         this.guestName = guestName;
         this.roomType = roomType;
     }
 
-    public String getGuestName() {
-        return guestName;
+    public String getReservationId() {
+        return reservationId;
     }
 
     public String getRoomType() {
@@ -20,13 +25,27 @@ class Reservation {
 
     @Override
     public String toString() {
-        return guestName + " -> " + roomType;
+        return reservationId + " | " + guestName + " | " + roomType;
     }
 }
 
-// Thread-safe Inventory Service
+// Wrapper class to persist system state
+class SystemState implements Serializable {
+    private static final long serialVersionUID = 1L;
+
+    Map<String, Integer> inventory;
+    List<Reservation> bookingHistory;
+
+    public SystemState(Map<String, Integer> inventory,
+                       List<Reservation> bookingHistory) {
+        this.inventory = inventory;
+        this.bookingHistory = bookingHistory;
+    }
+}
+
+// Inventory Service
 class InventoryService {
-    private Map<String, Integer> inventory = new HashMap<>();
+    Map<String, Integer> inventory = new HashMap<>();
 
     public InventoryService() {
         inventory.put("Standard", 2);
@@ -34,119 +53,123 @@ class InventoryService {
         inventory.put("Suite", 1);
     }
 
-    // Critical Section (synchronized)
-    public synchronized boolean allocateRoom(String roomType) {
-        int available = inventory.getOrDefault(roomType, 0);
-
-        if (available > 0) {
-            inventory.put(roomType, available - 1);
-            return true;
-        }
-        return false;
+    public void decrement(String type) {
+        inventory.put(type, inventory.get(type) - 1);
     }
 
-    public void displayInventory() {
-        System.out.println("\nFinal Inventory:");
-        for (Map.Entry<String, Integer> entry : inventory.entrySet()) {
-            System.out.println(entry.getKey() + " -> " + entry.getValue());
+    public Map<String, Integer> getInventory() {
+        return inventory;
+    }
+
+    public void setInventory(Map<String, Integer> data) {
+        inventory = data;
+    }
+
+    public void display() {
+        System.out.println("\nInventory:");
+        for (Map.Entry<String, Integer> e : inventory.entrySet()) {
+            System.out.println(e.getKey() + " -> " + e.getValue());
         }
     }
 }
 
-// Shared Booking Queue (Thread-safe access)
-class BookingQueue {
-    private Queue<Reservation> queue = new LinkedList<>();
+// Booking History
+class BookingHistory {
+    List<Reservation> history = new ArrayList<>();
 
-    public synchronized void addRequest(Reservation r) {
-        queue.offer(r);
+    public void add(Reservation r) {
+        history.add(r);
     }
 
-    public synchronized Reservation getNextRequest() {
-        return queue.poll();
+    public List<Reservation> getHistory() {
+        return history;
+    }
+
+    public void setHistory(List<Reservation> list) {
+        history = list;
+    }
+
+    public void display() {
+        System.out.println("\nBooking History:");
+        for (Reservation r : history) {
+            System.out.println(r);
+        }
     }
 }
 
-// Booking Processor (Runnable for threads)
-class BookingProcessor implements Runnable {
+// Persistence Service
+class PersistenceService {
 
-    private BookingQueue queue;
-    private InventoryService inventory;
+    private static final String FILE_NAME = "system_state.ser";
 
-    public BookingProcessor(BookingQueue queue, InventoryService inventory) {
-        this.queue = queue;
-        this.inventory = inventory;
-    }
+    // Save state
+    public void save(SystemState state) {
+        try (ObjectOutputStream oos =
+                     new ObjectOutputStream(new FileOutputStream(FILE_NAME))) {
 
-    @Override
-    public void run() {
-        while (true) {
+            oos.writeObject(state);
+            System.out.println("\n💾 System state saved successfully.");
 
-            Reservation reservation;
-
-            // Critical section: fetch request
-            synchronized (queue) {
-                reservation = queue.getNextRequest();
-            }
-
-            if (reservation == null) {
-                break; // no more requests
-            }
-
-            processReservation(reservation);
+        } catch (IOException e) {
+            System.out.println("❌ Error saving state: " + e.getMessage());
         }
     }
 
-    private void processReservation(Reservation r) {
+    // Load state
+    public SystemState load() {
+        try (ObjectInputStream ois =
+                     new ObjectInputStream(new FileInputStream(FILE_NAME))) {
 
-        // Critical section: allocate room safely
-        boolean success = inventory.allocateRoom(r.getRoomType());
+            SystemState state = (SystemState) ois.readObject();
+            System.out.println("\n♻️ System state restored successfully.");
+            return state;
 
-        if (success) {
-            System.out.println(Thread.currentThread().getName() +
-                    " ✅ Booked for " + r);
-        } else {
-            System.out.println(Thread.currentThread().getName() +
-                    " ❌ Failed (No Availability) for " + r);
+        } catch (FileNotFoundException e) {
+            System.out.println("\n⚠️ No saved data found. Starting fresh.");
+        } catch (Exception e) {
+            System.out.println("\n❌ Corrupted data. Starting with safe defaults.");
         }
+        return null;
     }
 }
 
 // Main Class
-public class BookMyStayApp {
+public class BookMyStayApp git {
 
     public static void main(String[] args) {
 
-        BookingQueue queue = new BookingQueue();
         InventoryService inventory = new InventoryService();
+        BookingHistory history = new BookingHistory();
+        PersistenceService persistence = new PersistenceService();
 
-        // Simulate multiple guest requests
-        queue.addRequest(new Reservation("Alice", "Deluxe"));
-        queue.addRequest(new Reservation("Bob", "Suite"));
-        queue.addRequest(new Reservation("Charlie", "Suite"));
-        queue.addRequest(new Reservation("David", "Standard"));
-        queue.addRequest(new Reservation("Eve", "Standard"));
-        queue.addRequest(new Reservation("Frank", "Standard"));
+        // Step 1: Try to restore state
+        SystemState savedState = persistence.load();
 
-        // Create multiple threads (simulating concurrent users)
-        Thread t1 = new Thread(new BookingProcessor(queue, inventory), "Thread-1");
-        Thread t2 = new Thread(new BookingProcessor(queue, inventory), "Thread-2");
-        Thread t3 = new Thread(new BookingProcessor(queue, inventory), "Thread-3");
+        if (savedState != null) {
+            inventory.setInventory(savedState.inventory);
+            history.setHistory(savedState.bookingHistory);
+        } else {
+            // Fresh bookings if no saved data
+            Reservation r1 = new Reservation("RES101", "Alice", "Deluxe");
+            Reservation r2 = new Reservation("RES102", "Bob", "Suite");
 
-        // Start threads
-        t1.start();
-        t2.start();
-        t3.start();
+            history.add(r1);
+            history.add(r2);
 
-        // Wait for completion
-        try {
-            t1.join();
-            t2.join();
-            t3.join();
-        } catch (InterruptedException e) {
-            e.printStackTrace();
+            inventory.decrement("Deluxe");
+            inventory.decrement("Suite");
         }
 
-        // Final state
-        inventory.displayInventory();
+        // Display current state
+        inventory.display();
+        history.display();
+
+        // Step 2: Save state before shutdown
+        SystemState currentState =
+                new SystemState(inventory.getInventory(), history.getHistory());
+
+        persistence.save(currentState);
+
+        System.out.println("\n✅ System ready for restart with persisted state.");
     }
 }
