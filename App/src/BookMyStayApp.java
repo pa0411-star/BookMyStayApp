@@ -16,10 +16,6 @@ class Reservation {
         return reservationId;
     }
 
-    public String getGuestName() {
-        return guestName;
-    }
-
     public String getRoomType() {
         return roomType;
     }
@@ -32,69 +28,143 @@ class Reservation {
     }
 }
 
-// Booking History (stores confirmed bookings)
-class BookingHistory {
+// Inventory Service
+class InventoryService {
+    private Map<String, Integer> inventory = new HashMap<>();
 
-    private List<Reservation> history;
-
-    public BookingHistory() {
-        history = new ArrayList<>();
+    public InventoryService() {
+        inventory.put("Standard", 2);
+        inventory.put("Deluxe", 1);
+        inventory.put("Suite", 1);
     }
 
-    // Add confirmed reservation
-    public void addReservation(Reservation reservation) {
-        history.add(reservation);
-        System.out.println("📌 Added to history: " + reservation);
+    public boolean isAvailable(String roomType) {
+        return inventory.getOrDefault(roomType, 0) > 0;
     }
 
-    // Retrieve all reservations
-    public List<Reservation> getAllReservations() {
-        return history;
+    public void decrement(String roomType) {
+        inventory.put(roomType, inventory.get(roomType) - 1);
     }
 
-    // Display history
-    public void displayHistory() {
-        if (history.isEmpty()) {
-            System.out.println("No bookings in history.");
-            return;
-        }
+    public void increment(String roomType) {
+        inventory.put(roomType, inventory.get(roomType) + 1);
+    }
 
-        System.out.println("\nBooking History (Chronological Order):");
-        for (Reservation r : history) {
-            System.out.println(r);
+    public void displayInventory() {
+        System.out.println("\nInventory:");
+        for (Map.Entry<String, Integer> entry : inventory.entrySet()) {
+            System.out.println(entry.getKey() + " -> " + entry.getValue());
         }
     }
 }
 
-// Report Service (read-only operations)
-class BookingReportService {
+// Booking History (with status)
+class BookingHistory {
+    private Map<String, String> history = new LinkedHashMap<>();
 
-    // Total bookings
-    public void totalBookings(List<Reservation> reservations) {
-        System.out.println("\n📊 Total Bookings: " + reservations.size());
+    public void addBooking(String reservationId) {
+        history.put(reservationId, "CONFIRMED");
     }
 
-    // Bookings by room type
-    public void bookingsByRoomType(List<Reservation> reservations) {
-        Map<String, Integer> countMap = new HashMap<>();
+    public void markCancelled(String reservationId) {
+        history.put(reservationId, "CANCELLED");
+    }
 
-        for (Reservation r : reservations) {
-            countMap.put(r.getRoomType(),
-                    countMap.getOrDefault(r.getRoomType(), 0) + 1);
-        }
-
-        System.out.println("\n📊 Bookings by Room Type:");
-        for (Map.Entry<String, Integer> entry : countMap.entrySet()) {
+    public void displayHistory() {
+        System.out.println("\nBooking History:");
+        for (Map.Entry<String, String> entry : history.entrySet()) {
             System.out.println(entry.getKey() + " -> " + entry.getValue());
         }
     }
+}
 
-    // List all bookings (read-only)
-    public void listAllBookings(List<Reservation> reservations) {
-        System.out.println("\n📊 Detailed Booking Report:");
-        for (Reservation r : reservations) {
-            System.out.println(r);
+// Booking Service
+class BookingService {
+
+    private int counter = 1;
+    private Map<String, String> reservationToRoom = new HashMap<>();
+    private Map<String, String> roomToType = new HashMap<>();
+
+    public void confirmBooking(Reservation reservation,
+                               InventoryService inventory,
+                               BookingHistory history) {
+
+        if (!inventory.isAvailable(reservation.getRoomType())) {
+            System.out.println("❌ Booking Failed: " + reservation);
+            return;
         }
+
+        String roomId = reservation.getRoomType().substring(0, 2).toUpperCase() + counter++;
+
+        reservationToRoom.put(reservation.getReservationId(), roomId);
+        roomToType.put(roomId, reservation.getRoomType());
+
+        inventory.decrement(reservation.getRoomType());
+        history.addBooking(reservation.getReservationId());
+
+        System.out.println("✅ Confirmed: " + reservation + " | Room ID: " + roomId);
+    }
+
+    public boolean isValidReservation(String reservationId) {
+        return reservationToRoom.containsKey(reservationId);
+    }
+
+    public String getRoomId(String reservationId) {
+        return reservationToRoom.get(reservationId);
+    }
+
+    public String getRoomType(String roomId) {
+        return roomToType.get(roomId);
+    }
+
+    public void removeReservation(String reservationId) {
+        String roomId = reservationToRoom.remove(reservationId);
+        if (roomId != null) {
+            roomToType.remove(roomId);
+        }
+    }
+}
+
+// Cancellation Service (with Stack rollback)
+class CancellationService {
+
+    private Stack<String> rollbackStack = new Stack<>();
+
+    public void cancelBooking(String reservationId,
+                              BookingService bookingService,
+                              InventoryService inventory,
+                              BookingHistory history) {
+
+        System.out.println("\nCancelling: " + reservationId);
+
+        // Step 1: Validate
+        if (!bookingService.isValidReservation(reservationId)) {
+            System.out.println("❌ Invalid or already cancelled booking.");
+            return;
+        }
+
+        // Step 2: Fetch details
+        String roomId = bookingService.getRoomId(reservationId);
+        String roomType = bookingService.getRoomType(roomId);
+
+        // Step 3: Push to stack (rollback tracking)
+        rollbackStack.push(roomId);
+
+        // Step 4: Restore inventory
+        inventory.increment(roomType);
+
+        // Step 5: Remove booking
+        bookingService.removeReservation(reservationId);
+
+        // Step 6: Update history
+        history.markCancelled(reservationId);
+
+        System.out.println("↩️ Cancelled: " + reservationId +
+                " | Released Room: " + roomId);
+    }
+
+    public void displayRollbackStack() {
+        System.out.println("\nRollback Stack: " + rollbackStack);
     }
 }
 
@@ -103,31 +173,33 @@ public class BookMyStayApp {
 
     public static void main(String[] args) {
 
-        // Step 1: Create booking history
-        BookingHistory bookingHistory = new BookingHistory();
+        InventoryService inventory = new InventoryService();
+        BookingHistory history = new BookingHistory();
+        BookingService bookingService = new BookingService();
+        CancellationService cancellationService = new CancellationService();
 
-        // Step 2: Simulate confirmed bookings
+        // Create reservations
         Reservation r1 = new Reservation("RES101", "Alice", "Deluxe");
         Reservation r2 = new Reservation("RES102", "Bob", "Suite");
         Reservation r3 = new Reservation("RES103", "Charlie", "Standard");
-        Reservation r4 = new Reservation("RES104", "David", "Deluxe");
 
-        // Step 3: Add to history (after confirmation)
-        bookingHistory.addReservation(r1);
-        bookingHistory.addReservation(r2);
-        bookingHistory.addReservation(r3);
-        bookingHistory.addReservation(r4);
+        inventory.displayInventory();
 
-        // Step 4: Display history
-        bookingHistory.displayHistory();
+        // Confirm bookings
+        bookingService.confirmBooking(r1, inventory, history);
+        bookingService.confirmBooking(r2, inventory, history);
+        bookingService.confirmBooking(r3, inventory, history);
 
-        // Step 5: Generate reports
-        BookingReportService reportService = new BookingReportService();
+        inventory.displayInventory();
+        history.displayHistory();
 
-        List<Reservation> allBookings = bookingHistory.getAllReservations();
+        // Cancel bookings
+        cancellationService.cancelBooking("RES102", bookingService, inventory, history);
+        cancellationService.cancelBooking("RES999", bookingService, inventory, history); // invalid
+        cancellationService.cancelBooking("RES102", bookingService, inventory, history); // already cancelled
 
-        reportService.totalBookings(allBookings);
-        reportService.bookingsByRoomType(allBookings);
-        reportService.listAllBookings(allBookings);
+        inventory.displayInventory();
+        history.displayHistory();
+        cancellationService.displayRollbackStack();
     }
 }
